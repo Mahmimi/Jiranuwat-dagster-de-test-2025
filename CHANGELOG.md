@@ -17,7 +17,7 @@ All notable changes to this project will be documented in this file.
 ### Screenshots
 Here’s a preview of the application:
 
-![Screenshot](version_image\version1.0.0.PNG)
+![Screenshot](version_image/version1.0.0.PNG)
 
 ### Notes
 - This release includes all the necessary functionality for data extraction and loading.
