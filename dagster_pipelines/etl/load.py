@@ -16,6 +16,7 @@ def load_to_duckdb(df: pd.DataFrame, table_name: str) -> None:
             result = con.sql(f"SELECT * FROM plan.plan.{table_name} LIMIT 1").fetchone()
             logger.info(f"Sample record from {table_name}: {result}")
             logger.info(f"Data successfully inserted into table '{table_name}'.")
+            con.close()
     except Exception as e:
         logger.error(f"Error loading data into DuckDB: {e}")
         raise

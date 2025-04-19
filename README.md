@@ -1,3 +1,20 @@
+## Project Overview
+
+This project handles the ETL process, reading data from Excel/CSV files and loading it into DuckDB with data type transformations. It includes logging with Dagster and a DataFrame preview for debugging.
+
+### Features
+- ETL for Excel/CSV data to DuckDB.
+- Logging with Dagster.
+- Data type casting and validation.
+- DataFrame preview in Dagster UI.
+
+### Fixes in Version 1.0.0
+- Handled string-to-number conversion issues.
+- Fixed unclosed database connections after data load.
+
+### Version 1.0.0
+![Screenshot](version_image\version1.0.0.PNG)
+
 # Dagster Data Engineering Test
 
 Follow the below instructions to complete this test.
