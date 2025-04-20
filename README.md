@@ -8,12 +8,11 @@ This project handles the ETL process, reading data from Excel/CSV files and load
 - Data type casting and validation.
 - DataFrame preview in Dagster UI.
 
-### Fixes in Version 1.0.0
-- Handled string-to-number conversion issues.
-- Fixed unclosed database connections after data load.
+### Version 1.1.0
+![Screenshot_v1.1.0](version_image/version1.1.0.PNG)
 
 ### Version 1.0.0
-![Screenshot](version_image/version1.0.0.PNG)
+![Screenshot_v1.0.0](version_image/version1.0.0.PNG)
 
 # Dagster Data Engineering Test
 
