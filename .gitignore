@@ -7,3 +7,6 @@ __pycache__
 
 # Exclude all gitkeep from ignore
 !*/.gitkeep
+
+secrets.toml
+config.toml
