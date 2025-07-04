@@ -1,6 +1,8 @@
 # Python venv
 .venv
 
+.env
+
 # Python cache
 *.egg-info
 __pycache__
