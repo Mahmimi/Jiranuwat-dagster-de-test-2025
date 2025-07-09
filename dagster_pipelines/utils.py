@@ -4,6 +4,10 @@ from datetime import date
 from pathlib import Path
 import shutil        
 
+from dagster import get_dagster_logger
+
+logger = get_dagster_logger()
+
 class NASfile_handler():
     """ Handles file operations with Synology NAS using the Synology API.
         This class provides methods to download files from a specified NAS folder
@@ -79,8 +83,10 @@ class NASfile_handler():
         print(f"✓ {f['name']} → {local_dir / f['name']}")
 
         self.downloaded_file_name = f['name']
+
+        logger.info(f"Downloaded file: {self.downloaded_file_name} from NAS to {local_dir / f['name']}")
         
-        return  local_dir / f['name']
+        return  str(local_dir / f['name'])
         
 
     def upload_success_file_nas(self, file_name: str) -> None:

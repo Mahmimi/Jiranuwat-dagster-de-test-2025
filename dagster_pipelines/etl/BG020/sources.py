@@ -2,7 +2,10 @@
 import dlt
 import pandas as pd
 from typing import Iterator, Dict, Any, List
-from dagster_pipelines.utils import NASfile_handler
+import os
+import zipfile
+from pathlib import Path
+import time
 
 # Define the resource for the loaded_data sheet
 @dlt.resource(
@@ -22,21 +25,34 @@ def read_bg020_excel(file_path: str) -> Iterator[Dict[str, Any]]:
         Dict[str, Any]: A dictionary representing each row in the Excel file,
         with an additional key '_sheet' for the sheet name.
     """
-    xls = pd.ExcelFile(file_path, engine="openpyxl")
-    for sheet in xls.sheet_names:                      
-        df = xls.parse(sheet)                          
-        for row in df.to_dict(orient="records"):       
-            row["_sheet"] = sheet                      
-            yield row
+
+    time.sleep(5)
+
+    file_path = Path(file_path)
+
+    size = os.path.getsize(file_path)
+    if size == 0:
+        raise RuntimeError(f"{file_path} is empty after download")
+    if not zipfile.is_zipfile(file_path):
+        raise ValueError(f"Invalid or corrupt XLSX file: {file_path}")
+
+    try:
+        with pd.ExcelFile(file_path, engine="openpyxl") as xls:
+            df = xls.parse(xls.sheet_names[0])
+            for row in df.to_dict("records"):
+                yield row
+    except (zipfile.BadZipFile, EOFError, ValueError) as e:
+        raise RuntimeError(f"Failed to read Excel file: {e}")
 
 # Define the dlt source that uses the read_bg020_excel resource
 @dlt.source(name="BG020_source")
-def bg020_source(nasfile_handler: NASfile_handler) -> List[dlt.resource]:
+def bg020_source(file_path: str) -> List[dlt.resource]:
     """
     Create a dlt source that reads data from the BG020 Excel file.
     Args:
-        nasfile_handler (NASfile_handler): An instance of NASfile_handler to download the file and keep file name to pass to downstream tasks via NASfile_handler.downloaded_file_name.
+        file_path (str): Path to the BG020 Excel file.
     Returns:
         List[dlt.resource]: A list containing the dlt resource for reading the BG020 Excel file.
     """
-    return [read_bg020_excel(nasfile_handler.download_files_from_nas("BG020"))]
+
+    return [read_bg020_excel(file_path=file_path), ]  # Return the resource for reading the Excel file

@@ -11,7 +11,7 @@ from dagster import get_dagster_logger
 logger = get_dagster_logger()
 
 # helper function
-def create_preview_table_asset(asset_name: str, deps: list, table_name: str):
+def create_preview_table_asset(key_prefix: str, asset_name: str, deps: list, table_name: str):
     """
     Creates a Dagster asset that previews the top 5 rows from a specified DuckDB table.
 
@@ -29,7 +29,7 @@ def create_preview_table_asset(asset_name: str, deps: list, table_name: str):
         Callable: A function that, when executed, retrieves and returns the preview of the table.
     """
 
-    @asset(name=asset_name, compute_kind="duckdb", group_name="plan", deps=deps)
+    @asset(key_prefix=key_prefix, name=asset_name, compute_kind="duckdb", group_name="plan", deps=deps)
     def _preview_asset() -> Output[pd.DataFrame]:
         with duckdb.connect("/opt/dagster/app/dagster_pipelines/db/plan.db") as con:
 
@@ -69,7 +69,7 @@ def validate_data(df: pd.DataFrame, expected_types: dict, passed_info: str) -> p
         return df
 
 # 1. Read and validate KPI Excel data
-@dg.asset(compute_kind="duckdb", group_name="plan")
+@dg.asset(key_prefix="kpi_fy", compute_kind="duckdb", group_name="plan")
 def read_validated_kpi_fy(context: dg.AssetExecutionContext) -> pd.DataFrame:
     """
     Reads KPI evaluation data from the "Data to DB" sheet in the "KPI_FY.xlsm" Excel file, validates the data types of the columns, and returns the validated DataFrame.
@@ -102,7 +102,7 @@ def read_validated_kpi_fy(context: dg.AssetExecutionContext) -> pd.DataFrame:
     return validate_data(kpi_data, expected_types=expected_types, passed_info="KPI data passed validation.")
 
 # 2. Pivot and validate KPI data
-@dg.asset(compute_kind="duckdb", group_name="plan", deps=[read_validated_kpi_fy])
+@dg.asset(key_prefix="kpi_fy", compute_kind="duckdb", group_name="plan", deps=[read_validated_kpi_fy])
 def pivot_validated_kpi_fy(context: dg.AssetExecutionContext, read_validated_kpi_fy: pd.DataFrame) -> pd.DataFrame:
     """
     Pivots and validates the KPI evaluation data using the specified transformation rules.
@@ -134,7 +134,7 @@ def pivot_validated_kpi_fy(context: dg.AssetExecutionContext, read_validated_kpi
     return validate_data(pivot_kpi, expected_types=expected_types, passed_info="Pivoted KPI data passed validation.")
 
 # 3. Load final KPI data into DuckDB
-@dg.asset(compute_kind="duckdb", group_name="plan", deps=[pivot_validated_kpi_fy])
+@dg.asset(key_prefix="kpi_fy", compute_kind="duckdb", group_name="plan", deps=[pivot_validated_kpi_fy])
 def kpi_fy(context: dg.AssetExecutionContext, pivot_validated_kpi_fy: pd.DataFrame) -> None:
     """
     Loads the pivoted and validated KPI evaluation data into the "KPI_FY" table in DuckDB.
@@ -162,13 +162,14 @@ def kpi_fy(context: dg.AssetExecutionContext, pivot_validated_kpi_fy: pd.DataFra
 
 # preview KPI_FY database
 preview_kpi_fy = create_preview_table_asset(
+    key_prefix="kpi_fy",
     asset_name="preview_kpi_fy",
     deps=[kpi_fy],
     table_name="KPI_FY"
 )
 
 # 2.3.1.2 Load M_Center.csv into M_Center
-@dg.asset(compute_kind="duckdb", group_name="plan")
+@dg.asset(key_prefix="kpi_fy", compute_kind="duckdb", group_name="plan")
 def read_validate_m_center(context: dg.AssetExecutionContext) -> pd.DataFrame:
     """
     Reads the center master data from the "M_Center.csv" CSV file and validates the data types of the columns.
@@ -186,7 +187,7 @@ def read_validate_m_center(context: dg.AssetExecutionContext) -> pd.DataFrame:
     }
     return validate_data(center_data, expected_types=expected_types, passed_info="M_Center data passed validation.")
 
-@dg.asset(compute_kind="duckdb", group_name="plan")
+@dg.asset(key_prefix="kpi_fy", compute_kind="duckdb", group_name="plan")
 def m_center(context: dg.AssetExecutionContext, read_validate_m_center: pd.DataFrame):
 
     """
@@ -205,13 +206,14 @@ def m_center(context: dg.AssetExecutionContext, read_validate_m_center: pd.DataF
 
 # preview M_Center database
 preview_m_center = create_preview_table_asset(
+    key_prefix="kpi_fy",
     asset_name="preview_m_center",
     deps=[m_center],
     table_name="M_Center"
 )
 
 # 2.3.2 Create asset kpi_fy_final_asset()
-@dg.asset(compute_kind="duckdb", group_name="plan", deps=[preview_kpi_fy, preview_m_center])
+@dg.asset(key_prefix="kpi_fy", compute_kind="duckdb", group_name="plan", deps=[preview_kpi_fy, preview_m_center])
 def kpi_fy_final_asset(context: dg.AssetExecutionContext):
 
     """
@@ -246,6 +248,7 @@ def kpi_fy_final_asset(context: dg.AssetExecutionContext):
 
 # preview KPI_FY_Final database
 preview_kpi_fy_final = create_preview_table_asset(
+    key_prefix="kpi_fy",
     asset_name="preview_kpi_fy_final",
     deps=[kpi_fy_final_asset],
     table_name="KPI_FY_Final"
