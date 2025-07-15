@@ -4,6 +4,7 @@ import dagster as dg
 from typing import List
 import dlt
 import pandas as pd
+from datetime import date
 
 from dagster_pipelines.utils import NASfile_handler, SQLServer_handler, load_downloaded_filename
 import dagster_pipelines.etl.BG020.sources as bg020_source
@@ -121,7 +122,8 @@ def upload_success_file_to_nas(context: AssetExecutionContext):
 def check_success_file_upload(context: AssetCheckExecutionContext) -> dg.AssetCheckResult:
     """Check if the success file has been uploaded to NAS."""
     try:
-        filename = nasfile_handler.local_dir / load_downloaded_filename()
+        today_str      = date.today().isoformat()          # 2025-07-04
+        filename = str(today_str) + "_" + load_downloaded_filename()
         if not filename:
             raise ValueError("No file has been downloaded from NAS. Please run the download step first.")
         
