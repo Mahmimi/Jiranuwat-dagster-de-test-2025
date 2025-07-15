@@ -28,6 +28,7 @@ dependencies = [
     "polars",
     "openpyxl>=3.1.5",
     "synology-api>=0.8.1",
+    "toml>=0.10.2",
 ]
 
 [dependency-groups]

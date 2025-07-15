@@ -5,6 +5,7 @@ from dagster_dlt.translator import DltResourceTranslatorData
 
 
 class CustomDagsterDltTranslator(DagsterDltTranslator):
+    """Custom translator for Dagster DLT assets to handle specific asset key, dependencies, and description requirements."""
 
     def get_asset_spec(self, data: DltResourceTranslatorData) -> dg.AssetSpec:
         default_spec = super().get_asset_spec(data)

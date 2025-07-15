@@ -3,7 +3,9 @@ import os, pathlib
 from datetime import date
 from pathlib import Path
 import shutil
-import json        
+import json
+import toml
+import pyodbc
 
 from dagster import get_dagster_logger
 
@@ -63,6 +65,7 @@ class NASfile_handler():
         self.NAS_PORT     = "5000"                 # 5001 + secure=True for HTTPS
         self.__NAS_USERNAME = os.getenv("NAS_USERNAME")
         self.__NAS_PASSWORD = os.getenv("NAS_PASSWORD")
+        self.local_dir = Path("dagster_pipelines/data")
 
         # ---------- 1. connect ----------
         self.__fs = filestation.FileStation(
@@ -93,21 +96,20 @@ class NASfile_handler():
         xlsx_files = [f for f in files if (not f["isdir"]) and f["name"].lower().endswith(".xlsx") and f["name"].startswith(filename_pattern)]
 
         # ----------  download ----------
-        local_dir = pathlib.Path("dagster_pipelines/data")
-        local_dir.mkdir(exist_ok=True)
+        self.local_dir.mkdir(exist_ok=True)
 
         f = xlsx_files[0]
         remote_path = f["path"]            # e.g. “…/a.xlsx”
         self.__fs.get_file(
             path   = remote_path,
             mode   = "download",
-            dest_path = str(local_dir),    #  <─ directory only!
+            dest_path = str(self.local_dir),    #  <─ directory only!
             verify = True
         )
 
         save_downloaded_filename(str(f['name']))
 
-        logger.info(f"Downloaded file: {load_downloaded_filename()} from NAS to {local_dir / f['name']}")
+        logger.info(f"Downloaded file: {load_downloaded_filename()} from NAS to {self.local_dir / f['name']}")
         
     def upload_success_file_nas(self, file_name: str) -> None:
         """ Uploads a success file after processing to the NAS with a timestamped name.
@@ -118,11 +120,11 @@ class NASfile_handler():
         """
         if not file_name:
             raise ValueError("No file has been downloaded from NAS. Please run the download step first.")
-        local_dir      = Path("dagster_pipelines/data")
-        src            = local_dir / file_name
+        self.local_dir      = Path("dagster_pipelines/data")
+        src            = self.local_dir / file_name
         today_str      = date.today().isoformat()          # 2025-07-04
         renamed_name   = f"{today_str}_{file_name}"
-        tmp            = local_dir / renamed_name          # temp copy/rename
+        tmp            = self.local_dir / renamed_name          # temp copy/rename
 
         shutil.copy2(src, tmp)            # or src.rename(tmp) if you no longer need src
 
@@ -135,3 +137,113 @@ class NASfile_handler():
             print(f"✓ uploaded as {renamed_name}")
         finally:
             tmp.unlink(missing_ok=True)    # clean up the temp file
+
+    def check_success_file_exists(self, file_name: str) -> bool:
+        """ Checks if the success file exists on the NAS.
+
+            Args:
+                file_name (str): The name of the file to check. 
+                                 It should be the exact name of the file that was processed, e.g., "BG020.xlsx".
+            Returns:
+                bool: True if the file exists, False otherwise.
+        """
+        remote_folder = "/sidataplus-drive/Data Engineer/Earth_Onboarding(Success)"
+        listing = self.__fs.get_file_list(folder_path=remote_folder)
+        files = listing["data"]["files"]
+
+        return any(f["name"] == file_name for f in files)
+
+class SQLServer_handler():
+    """ Handles connection to a Microsoft SQL Server database.
+        This class provides methods to connect to the database, execute queries,
+        and fetch table statistics such as row count and column count.
+
+        Attributes:
+            connection_string (str): The connection string used to connect to the MSSQL database.
+        
+        Methods:
+            connect() -> pyodbc.Connection:
+                Establishes a connection to the MSSQL database.
+            execute_query(query: str) -> list:
+                Executes a SQL query and returns the results.
+            get_mssql_credentials_from_dlt() -> str:
+                Retrieves the MSSQL credentials from a DLT configuration file.
+            fetch_table_stats(table_name: str) -> tuple:
+                Fetches the row count and column count for a specified table.
+    """
+    
+    def __init__(self,):
+        self.connection_string = self.get_mssql_credentials_from_dlt()
+
+    def connect(self):
+        """ Establishes a connection to the MSSQL database using the connection string.
+            Returns:
+                pyodbc.Connection: A connection object to the MSSQL database.
+        """
+        return pyodbc.connect(self.connection_string)
+
+    def execute_query(self, query: str) -> list:
+        """
+        Executes a SQL query and returns the results.
+        Args:
+            query (str): The SQL query to execute.
+        Returns:
+            list: A list of results from the executed query.
+        """
+        with self.connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query)
+                results = cursor.fetchall()
+                return results
+        
+
+    def get_mssql_credentials_from_dlt(self) -> str:
+        """ Retrieves the MSSQL credentials from a DLT configuration file.
+            Returns:
+                str: The connection string for the MSSQL database.
+        """
+        secrets = toml.load(".dlt/secrets.toml")
+        creds = secrets["destination"]["mssql"]["credentials"]
+        query_flags = creds.get("query", {})
+
+        driver = creds.get("driver", "ODBC Driver 18 for SQL Server")
+        host = creds["host"]
+        database = creds["database"]
+        username = creds["username"]
+        password = creds["password"]
+        timeout = creds.get("connect_timeout", 15)
+
+        # Flatten query flags into semicolon-separated string
+        query_str = ";".join(f"{k}={v}" for k, v in query_flags.items())
+
+        conn_str = (
+            f"DRIVER={{{driver}}};"
+            f"SERVER={host};"
+            f"DATABASE={database};"
+            f"UID={username};"
+            f"PWD={password};"
+            f"Connection Timeout={timeout};"
+            f"{query_str};"
+        )
+        return conn_str
+
+    def fetch_table_stats(self, table_name: str) -> tuple:
+        """ Fetches the row count and column count for a specified table.
+            Args:
+                table_name (str): The name of the table to fetch statistics for.
+            Returns:
+                tuple: A tuple containing the row count and column count of the table.
+        """
+        conn_str = self.connection_string
+        with self.connect() as conn:
+            with conn.cursor() as cursor:
+                # Row count
+                cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+                row_count = cursor.fetchone()[0]
+
+                # Column count
+                cursor.execute(f"SELECT TOP 1 * FROM {table_name}")
+                columns = [column[0] for column in cursor.description]
+                column_count = len(columns)
+
+        return row_count, column_count
