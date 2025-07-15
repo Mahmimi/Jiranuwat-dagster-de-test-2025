@@ -12,5 +12,6 @@ class CustomDagsterDltTranslator(DagsterDltTranslator):
 
         deps = [dg.AssetKey(["bg020_download_file"])]
         asset_key = dg.AssetKey(["dlt_bg020"]).with_prefix("bg020")  # Create a new asset key with the prefix "bg020"
+        description = f"Asset for DLT pipeline to read .xlsx file and migrate to Microsoft SQL server database with upstream dependencies on bg020_download_file"
 
-        return default_spec.replace_attributes(deps=deps, key=asset_key) 
+        return default_spec.replace_attributes(deps=deps, key=asset_key, description=description)

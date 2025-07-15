@@ -1,4 +1,3 @@
-# dagster_pipelines/definitions.py
 from dagster import Definitions, load_assets_from_modules
 from dagster_dlt import DagsterDltResource
 

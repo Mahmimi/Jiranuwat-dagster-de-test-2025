@@ -12,3 +12,5 @@ __pycache__
 
 secrets.toml
 config.toml
+
+experiment/

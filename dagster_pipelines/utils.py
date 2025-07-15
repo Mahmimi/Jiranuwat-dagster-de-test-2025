@@ -2,11 +2,38 @@ from synology_api import filestation
 import os, pathlib
 from datetime import date
 from pathlib import Path
-import shutil        
+import shutil
+import json        
 
 from dagster import get_dagster_logger
 
 logger = get_dagster_logger()
+
+STATE_FILE = Path("dagster_pipelines/data/bg020_download_state.json")
+
+def save_downloaded_filename(file_name: str):
+    """ Saves the downloaded file name to a JSON file for temporary storage.
+        This is used to keep track of the file that was downloaded from the NAS.
+    """
+    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(STATE_FILE, "w") as f:
+        json.dump({"file_name": file_name}, f)
+
+def load_downloaded_filename() -> str:
+    """ Loads the downloaded file name from the JSON file.
+        This is used to retrieve the file name that was downloaded from the NAS.
+    """
+    if not STATE_FILE.exists():
+        raise FileNotFoundError("Downloaded file name not found. Run download step first.")
+    with open(STATE_FILE, "r") as f:
+        return json.load(f)["file_name"]
+
+def clear_downloaded_filename():
+    """ Clears the downloaded file name from the JSON file.
+        This is used to reset the state after the file has been processed or uploaded.
+    """
+    if STATE_FILE.exists():
+        STATE_FILE.unlink()
 
 class NASfile_handler():
     """ Handles file operations with Synology NAS using the Synology API.
@@ -36,7 +63,6 @@ class NASfile_handler():
         self.NAS_PORT     = "5000"                 # 5001 + secure=True for HTTPS
         self.__NAS_USERNAME = os.getenv("NAS_USERNAME")
         self.__NAS_PASSWORD = os.getenv("NAS_PASSWORD")
-        self.downloaded_file_name = None
 
         # ---------- 1. connect ----------
         self.__fs = filestation.FileStation(
@@ -49,15 +75,13 @@ class NASfile_handler():
             dsm_version=7            # DSM 6 ⇒ 6, DSM 7 ⇒ 7
         )
 
-    def download_files_from_nas(self, filename_pattern:str) -> str:
+    def download_files_from_nas(self, filename_pattern:str) -> None:
         """ Downloads the first matching .xlsx file from the NAS folder.
+        Downloaded file name will be saved to a .json file for temporary storage.
 
             Args:
                 filename_pattern (str): The pattern to match the file name. 
                                         It should be a prefix of the file name, e.g., "BG020".
-
-            Returns:
-                str: The local path where the downloaded file is saved.
         """
 
         # ----------  list the folder ----------
@@ -80,15 +104,11 @@ class NASfile_handler():
             dest_path = str(local_dir),    #  <─ directory only!
             verify = True
         )
-        print(f"✓ {f['name']} → {local_dir / f['name']}")
 
-        self.downloaded_file_name = f['name']
+        save_downloaded_filename(str(f['name']))
 
-        logger.info(f"Downloaded file: {self.downloaded_file_name} from NAS to {local_dir / f['name']}")
+        logger.info(f"Downloaded file: {load_downloaded_filename()} from NAS to {local_dir / f['name']}")
         
-        return  str(local_dir / f['name'])
-        
-
     def upload_success_file_nas(self, file_name: str) -> None:
         """ Uploads a success file after processing to the NAS with a timestamped name.
 
@@ -96,6 +116,8 @@ class NASfile_handler():
                 file_name (str): The name of the file to upload. 
                                  It should be the exact name of the file that was processed, e.g., "BG020.xlsx".
         """
+        if not file_name:
+            raise ValueError("No file has been downloaded from NAS. Please run the download step first.")
         local_dir      = Path("dagster_pipelines/data")
         src            = local_dir / file_name
         today_str      = date.today().isoformat()          # 2025-07-04
