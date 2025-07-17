@@ -6,6 +6,7 @@ import shutil
 import json
 import toml
 import pyodbc
+import re
 
 from dagster import get_dagster_logger
 
@@ -13,22 +14,48 @@ logger = get_dagster_logger()
 
 STATE_FILE = Path("dagster_pipelines/data/bg020_download_state.json")
 
-def save_downloaded_filename(file_name: str):
-    """ Saves the downloaded file name to a JSON file for temporary storage.
-        This is used to keep track of the file that was downloaded from the NAS.
-    """
-    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(STATE_FILE, "w") as f:
-        json.dump({"file_name": file_name}, f)
+def save_downloaded_filename(file_key: str, file_name: str):
+    """Upserts the downloaded file name under the given file_key in a JSON file.
 
-def load_downloaded_filename() -> str:
+        Args:
+            file_name (str): The name of the downloaded file.
+            file_key (str): The key under which the file name will be stored in the JSON file.
+
+        Note:    
+            This function creates the directory for the JSON file if it does not exist,
+            and initializes the JSON file if it does not exist."""
+    
+    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+    # Load existing state if the file exists
+    if STATE_FILE.exists():
+        with open(STATE_FILE, "r") as f:
+            try:
+                state = json.load(f)
+            except json.JSONDecodeError:
+                state = {}
+    else:
+        state = {}
+
+    # Update or insert the file_key with the new file_name
+    state[file_key] = file_name
+
+    # Save back to the file
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f, indent=4)
+
+def load_downloaded_filename(file_key: str) -> str:
     """ Loads the downloaded file name from the JSON file.
         This is used to retrieve the file name that was downloaded from the NAS.
     """
     if not STATE_FILE.exists():
         raise FileNotFoundError("Downloaded file name not found. Run download step first.")
+
     with open(STATE_FILE, "r") as f:
-        return json.load(f)["file_name"]
+        state = json.load(f)
+        if file_key not in state:
+            raise FileNotFoundError(f"Downloaded file name not found for key: {file_key}")
+        return state[file_key]
 
 def clear_downloaded_filename():
     """ Clears the downloaded file name from the JSON file.
@@ -78,13 +105,18 @@ class NASfile_handler():
             dsm_version=7            # DSM 6 ⇒ 6, DSM 7 ⇒ 7
         )
 
-    def download_files_from_nas(self, filename_pattern:str) -> None:
+    def download_files_from_nas(self, filename_pattern:str, file_key: str) -> None:
         """ Downloads the first matching .xlsx file from the NAS folder.
         Downloaded file name will be saved to a .json file for temporary storage.
 
             Args:
                 filename_pattern (str): The pattern to match the file name. 
                                         It should be a prefix of the file name, e.g., "BG020".
+                file_key (str): The key under which the downloaded file name will be stored in the JSON file.
+            Raises:
+                FileNotFoundError: If no matching file is found in the NAS folder.
+            Returns:
+                None: The method saves the downloaded file name to a JSON file and does not return anything
         """
 
         # ----------  list the folder ----------
@@ -107,10 +139,10 @@ class NASfile_handler():
             verify = True
         )
 
-        save_downloaded_filename(str(f['name']))
+        save_downloaded_filename(file_key, str(f['name']))
 
-        logger.info(f"Downloaded file: {load_downloaded_filename()} from NAS to {self.local_dir / f['name']}")
-        
+        logger.info(f"Downloaded file: {load_downloaded_filename(file_key=file_key)} from NAS to {self.local_dir / f['name']}")
+
     def upload_success_file_nas(self, file_name: str) -> None:
         """ Uploads a success file after processing to the NAS with a timestamped name.
 
@@ -174,6 +206,7 @@ class SQLServer_handler():
     
     def __init__(self,):
         self.connection_string = self.get_mssql_credentials_from_dlt()
+        self.ALLOWED_TABLES ={"bg020_sap_data", "bg020_user_data"}
 
     def connect(self):
         """ Establishes a connection to the MSSQL database using the connection string.
@@ -181,22 +214,7 @@ class SQLServer_handler():
                 pyodbc.Connection: A connection object to the MSSQL database.
         """
         return pyodbc.connect(self.connection_string)
-
-    def execute_query(self, query: str) -> list:
-        """
-        Executes a SQL query and returns the results.
-        Args:
-            query (str): The SQL query to execute.
-        Returns:
-            list: A list of results from the executed query.
-        """
-        with self.connect() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(query)
-                results = cursor.fetchall()
-                return results
         
-
     def get_mssql_credentials_from_dlt(self) -> str:
         """ Retrieves the MSSQL credentials from a DLT configuration file.
             Returns:
@@ -227,22 +245,39 @@ class SQLServer_handler():
         )
         return conn_str
 
-    def fetch_table_stats(self, table_name: str) -> tuple:
-        """ Fetches the row count and column count for a specified table.
-            Args:
-                table_name (str): The name of the table to fetch statistics for.
-            Returns:
-                tuple: A tuple containing the row count and column count of the table.
+    def fetch_table_stats(self, table_name: str, schema: str = "dbo", database: str = None) -> tuple:
         """
-        conn_str = self.connection_string
+        Fetches the row count and column count for a specified table.
+
+        Args:
+            table_name (str): The name of the table to fetch statistics for.
+            schema (str): The schema of the table. Defaults to "dbo".
+            database (str, optional): The name of the database. If not provided, uses the default database from the connection string.
+
+        Returns:
+            tuple: A tuple containing the row count and column count of the table.
+        """
+        # Validate table_name to avoid SQL injection
+        for identifier in [table_name, schema]:
+            identifier = identifier.strip()
+            if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", identifier):
+                raise ValueError(f"Invalid identifier: {identifier}")
+
+        full_table = f"[{schema}].[{table_name}]"
+        if database:
+            full_table = f"[{database}].{full_table}"
+        
+        if table_name not in self.ALLOWED_TABLES:
+            raise ValueError(f"Table {table_name} is not allowed. Allowed tables are: {self.ALLOWED_TABLES}")
+
         with self.connect() as conn:
             with conn.cursor() as cursor:
                 # Row count
-                cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+                cursor.execute(f"SELECT COUNT(*) FROM {full_table}")
                 row_count = cursor.fetchone()[0]
 
                 # Column count
-                cursor.execute(f"SELECT TOP 1 * FROM {table_name}")
+                cursor.execute(f"SELECT TOP 1 * FROM {full_table}")
                 columns = [column[0] for column in cursor.description]
                 column_count = len(columns)
 
