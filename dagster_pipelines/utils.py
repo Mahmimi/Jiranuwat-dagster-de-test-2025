@@ -282,3 +282,28 @@ class SQLServer_handler():
                 column_count = len(columns)
 
         return row_count, column_count
+    
+    def fetch_all_data(self, table_name: str, schema: str = "dbo", database: str = None) -> list[tuple]:
+        """Fetches all rows from the specified table in the SQL Server database.
+
+        Args:
+            table_name (str): The name of the table to fetch data from.
+            schema (str): The schema the table belongs to (default is "dbo").
+            database (str, optional): If provided, overrides the database in the connection string.
+
+        Returns:
+            list[tuple]: All rows fetched from the table.
+        """
+        if table_name not in self.ALLOWED_TABLES:
+            raise ValueError(f"Table '{table_name}' is not in the allowed list.")
+
+        query = f"SELECT * FROM [{schema}].[{table_name}]"
+        if database:
+            query = f"USE [{database}]; {query}"
+
+        with self.connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query)
+            results = cursor.fetchall()
+            return results
+

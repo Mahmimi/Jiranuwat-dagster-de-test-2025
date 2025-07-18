@@ -9,9 +9,9 @@ from time import sleep
 import os
 
 from dagster_pipelines.utils import NASfile_handler, SQLServer_handler, load_downloaded_filename, clear_downloaded_filename
-import dagster_pipelines.etl.BG020.sources as bg020_source
-import dagster_pipelines.etl.BG020.pipelines as pipelines
-from dagster_pipelines.etl.BG020.translator import CustomDagsterDltTranslator
+import dagster_pipelines.etl.BG020.bronze.sources as bg020_source
+import dagster_pipelines.etl.BG020.bronze.pipelines as pipelines
+from dagster_pipelines.etl.BG020.bronze.translator import CustomDagsterDltTranslator
 
 # import the NASfile_handler to handle file operations
 # This class handles downloading the file from NAS and uploading a success file after processing.
@@ -19,8 +19,8 @@ nasfile_handler = NASfile_handler()
 
 # Define the Dagster asset for downloading the BG020 file
 @dg.asset(
-    key_prefix="bg020",
-    group_name="bg020",
+    key_prefix=["bg020", "bronze"],
+    group_name="bg020_bronze",
     name="bg020_download_file",
 )
 def download_bg020_file(context: AssetExecutionContext) -> dict:
@@ -77,7 +77,7 @@ def check_bg020_file_downloaded(context: AssetCheckExecutionContext) -> Generato
     dlt_source=bg020_source.bg020_source(),
     dlt_pipeline=pipelines.pipeline,
     name="dlt_bg020",
-    group_name="bg020",
+    group_name="bg020_bronze",
     dagster_dlt_translator=CustomDagsterDltTranslator(),
 )
 def bg020_dlt_assets(
@@ -146,10 +146,10 @@ def check_bg020_dlt_assets(context: AssetCheckExecutionContext) -> Generator[dg.
         raise e
 
 # Define the asset that uploads a success file to NAS after the dlt pipeline has run
-@dg.asset(key_prefix="bg020", 
+@dg.asset(key_prefix=["bg020", "bronze"], 
         #   ins={"download_bg020_file": dg.AssetIn(key=AssetKey(["bg020", "bg020_download_file"]))}, # alternative way to specify dependencies for list of asset keys and MUST include download_bg020_file as parameter in the function
           deps=[bg020_dlt_assets,], 
-          group_name="bg020")
+          group_name="bg020_bronze")
 def upload_success_file_to_nas(context: AssetExecutionContext, bg020_download_file: dict) -> None:
     """Uploads a success file to NAS after the dlt pipeline has run.
     Args:
@@ -198,7 +198,7 @@ def check_success_file_upload(context: AssetCheckExecutionContext) -> Generator[
             dg.AssetCheckResult: The result of the asset check.
         """
         try:
-            today_str      = date.today().isoformat()          # 2025-07-04
+            today_str      = date.today().isoformat()          
             filename = str(today_str) + "_" + load_downloaded_filename(file_key=file_key)
             if not filename:
                 raise ValueError("No file has been downloaded from NAS. Please run the download step first.")

@@ -1,5 +1,5 @@
 import dlt
-from dagster_pipelines.etl.BG020.sources import bg020_source
+from dagster_pipelines.etl.BG020.bronze.sources import bg020_source
 
 # define the dlt pipeline
 pipeline = dlt.pipeline(

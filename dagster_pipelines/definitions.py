@@ -1,7 +1,7 @@
 from dagster import Definitions
 
 import dagster_pipelines.etl.KPI.definitions as kpi_definations
-import dagster_pipelines.etl.BG020.definitions as bg020_definitions
+import dagster_pipelines.etl.BG020.bronze.definitions as bg020_bronze_definitions
 
 import logging
 from dagster import get_dagster_logger
@@ -29,5 +29,5 @@ class DagsterLogHandler(logging.Handler):
 dlt_logger.addHandler(DagsterLogHandler())
 
 defs = Definitions.merge(
-    kpi_definations.defs, bg020_definitions.defs
+    kpi_definations.defs, bg020_bronze_definitions.defs
 )
